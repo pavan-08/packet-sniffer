@@ -1,5 +1,5 @@
 # Packet Sniffer
-A Packet Sniffer app made using Python 
+A Packet Sniffer app made using Python for Linux 
 
 ## Setup
 Change directory into the project after cloning and run,
