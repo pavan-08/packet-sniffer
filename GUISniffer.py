@@ -1,7 +1,9 @@
 from Tkinter import *   
+from struct import *
+from impacket import ImpactDecoder, ImpactPacket
+import socket
 import Pmw
 import pcapy
-from impacket import ImpactDecoder, ImpactPacket
 import thread
 import sys
 import tkMessageBox
@@ -11,6 +13,8 @@ accent='#68efad'
 primarydark='#691a99'
 interface=''
 detail=''
+table=''
+protocols={6:"TCP", 1: "ICMP", 17: "UDP"}
 
 class SimpleTable(Frame):
     def __init__(self, parent, bg, fg, clearbackground, columns):
@@ -30,9 +34,11 @@ class SimpleTable(Frame):
     def showdetails(self, arg):
 		global detail
 		detail.set(arg['details'])
+		print arg['data']
 		for row in self._widgets:
-			for label in row:
-				label.config(bg='white')
+			if row[0] != self._widgets[0][0]:
+				for label in row:
+					label.config(bg='white')
 		if len(self._widgets) > arg['row']:
 			for label in self._widgets[arg['row']]:
 				label.config(bg='#eeeeee')
@@ -45,7 +51,7 @@ class SimpleTable(Frame):
 		for value in values:
 			label = Label(self, text="%s" % (value), borderwidth=0, bg=bg, fg=fg, relief=FLAT)
 			label.grid(row=len(self._widgets), column=values.index(value), sticky=W+E, ipadx=3, ipady=1, padx=(0,1), pady=(1,0))
-			data = {"details": nrow[1], "row": len(self._widgets)}
+			data = {"details": nrow[1], "row": len(self._widgets), "data": nrow[2]}
 			label.bind('<Button-1>', lambda e, arg=data: self.showdetails(arg))
 			new_row.append(label)
 		self._widgets.append(new_row)
@@ -54,12 +60,149 @@ class SimpleTable(Frame):
         widget = self._widgets[row][column]
         widget.configure(text=value)
 
+def sniffme():
+	global interface
+	cap = pcapy.open_live(interface.get() , 65536 , 1 , 0)
+	#start sniffing packets
+	while(1):
+		(header, packet) = cap.next()
+		#print ('captured %d bytes, truncated to %d bytes' %(header.getlen(), header.getcaplen()))
+		parse_packet(packet)
 
-def canvasfunc(event):
-	canvas.configure(scrollregion=canvas.bbox("all"),width=200,height=200)
+#Convert a string of 6 characters of ethernet address into a dash separated hex string
+def eth_addr (a) :
+    b = "%.2x:%.2x:%.2x:%.2x:%.2x:%.2x" % (ord(a[0]) , ord(a[1]) , ord(a[2]), ord(a[3]), ord(a[4]) , ord(a[5]))
+    return b
+ 
+#function to parse a packet
+def parse_packet(packet) :
+    global table, protocols
+    #parse ethernet header
+    eth_length = 14
+     
+    eth_header = packet[:eth_length]
+    eth = unpack('!6s6sH' , eth_header)
+    eth_protocol = socket.ntohs(eth[2])
+    values=[]
+    nrow=[]
+    values.append(eth_addr(packet[0:6]))
+    values.append(eth_addr(packet[6:12]))
+    values.append(str(eth_protocol))
+    #Parse IP packets, IP Protocol number = 8
+    if eth_protocol == 8 :
+        #Parse IP header
+        #take first 20 characters for the ip header
+        ip_header = packet[eth_length:20+eth_length]
+        
+        iph = unpack('!BBHHHBBH4s4s' , ip_header)
+ 
+        version_ihl = iph[0]
+        version = version_ihl >> 4
+        ihl = version_ihl & 0xF
+ 
+        iph_length = ihl * 4
+ 
+        ttl = iph[5]
+        protocol = iph[6]
+        s_addr = socket.inet_ntoa(iph[8]);
+        d_addr = socket.inet_ntoa(iph[9]);
+        values.append(str(version))
+        values.append(str(ihl))
+        values.append(str(ttl))
+        if protocol in protocols:
+            values.append(protocols[protocol])
+        else:
+            values.append("Other")
+        values.append(str(s_addr))
+        values.append(str(d_addr))
+        nrow.append(values)
+        #TCP protocol
+        if protocol == 6 :
+            t = iph_length + eth_length
+            tcp_header = packet[t:t+20]
+ 
+            #now unpack them :)
+            tcph = unpack('!HHLLBBHHH' , tcp_header)
+             
+            source_port = tcph[0]
+            dest_port = tcph[1]
+            sequence = tcph[2]
+            acknowledgement = tcph[3]
+            doff_reserved = tcph[4]
+            tcph_length = doff_reserved >> 4
+             
+            det = 'Source Port : ' + str(source_port) + ' Dest Port : ' + str(dest_port) + ' Sequence Number : ' + str(sequence) + ' Acknowledgement : ' + str(acknowledgement) + ' TCP header length : ' + str(tcph_length)
+            
+            h_size = eth_length + iph_length + tcph_length * 4
+            data_size = len(packet) - h_size
+             
+            #get data from the packet
+            data = packet[h_size:]
+            nrow.append(det) 
+            nrow.append('Data : ' + data)
+             
+        #ICMP Packets
+        elif protocol == 1 :
+            u = iph_length + eth_length
+            icmph_length = 4
+            icmp_header = packet[u:u+4]
+ 
+            #now unpack them :)
+            icmph = unpack('!BBH' , icmp_header)
+             
+            icmp_type = icmph[0]
+            code = icmph[1]
+            checksum = icmph[2]
+             
+            det = 'Type : ' + str(icmp_type) + ' Code : ' + str(code) + ' Checksum : ' + str(checksum)
+            h_size = eth_length + iph_length + icmph_length
+            data_size = len(packet) - h_size
+             
+            #get data from the packet
+            data = packet[h_size:]
+            nrow.append(det)  
+            nrow.append('Data : ' + data)
+            
+        #UDP packets
+        elif protocol == 17 :
+            u = iph_length + eth_length
+            udph_length = 8
+            udp_header = packet[u:u+8]
+ 
+            #now unpack them :)
+            udph = unpack('!HHHH' , udp_header)
+             
+            source_port = udph[0]
+            dest_port = udph[1]
+            length = udph[2]
+            checksum = udph[3]
+             
+            det = 'Source Port : ' + str(source_port) + ' Dest Port : ' + str(dest_port) + ' Length : ' + str(length) + ' Checksum : ' + str(checksum)
+            h_size = eth_length + iph_length + udph_length
+            data_size = len(packet) - h_size
+             
+            #get data from the packet
+            data = packet[h_size:]
+            nrow.append(det) 
+            nrow.append('Data : ' + data)
+            
+ 
+        #some other IP packet like IGMP
+        else :
+            det = 'Protocol other than TCP/UDP/ICMP'
+            nrow.append(det)
+            nrow.append('')
+        table.insert(nrow)
+
+def threadone():
+	try:
+		thread.start_new_thread(sniffme,())
+	except (KeyboardInterrupt, SystemExit):
+		cleanup_stop_thread();
+		sys.exit()
 
 def main(argv):
-	global primary, accent, interface, primarydark,detail
+	global primary, accent, interface, primarydark, detail, table
 	root = Tk()
 	interface=StringVar()
 	root.minsize(1000,500)
@@ -69,8 +212,10 @@ def main(argv):
 	root.configure(background='white')
 	#Toolbar
 	fm = Frame(root, bg=primary, relief=RAISED)
+	Button(fm, text='Start Capture', bg=accent, fg='white', height=2, relief=RAISED, command=threadone, activebackground=accent, activeforeground='white').pack(side=RIGHT,anchor=NE,pady=(15,0),padx=(0,20),expand=NO)
 	Label(fm, text='Packet Sniffer', bg=primary, fg='white', font=('Helvetica', 16)).pack(side=TOP,pady=(5,0))
 	Label(fm, text='v1.0', bg=primary, fg='white', font=('Helvetica', 10)).pack(side=TOP)
+	
 	fm.pack(side=TOP, expand=NO, fill=X)
 	#Toolbar end
 	#Interface radio buttons
@@ -96,20 +241,6 @@ def main(argv):
 	table=SimpleTable(bf,'white', 'black', 'black',columns)
 	table.pack(side=TOP, fill=BOTH)
 	#Packets table end
-	######sample data begin
-	values=['08:00:27:a2:be:63','0c:d2:b5:2c:d7:c4', '8', '4', '5', '55', '1', '216.58.197.68', '192.168.1.101']
-	details='Type : 0 Code : 0 Checksum : 59306 Data : !"#$%&\'()*+,-./01234567'	
-	nrow=[]
-	nrow.append(values)
-	nrow.append(details)
-	table.insert(nrow)
-	values=['08:00:27:a2:be:63','0c:d2:b5:2c:d7:c4', '8', '4', '5', '55', '1', '216.58.197.68', '192.168.1.101']
-	details='Type : 0 Code : 0 Checksum : 5930123 Data : !"#$%&\'()*+,-./01234567'	
-	nrow=[]
-	nrow.append(values)
-	nrow.append(details)
-	table.insert(nrow)
-	##########sample data end
 	#Detail section
 	detsf=Pmw.ScrolledFrame(root, horizflex='expand')
 	detsf.pack(side=TOP,fill=BOTH, expand=YES)
