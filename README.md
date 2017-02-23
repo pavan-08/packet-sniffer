@@ -1,7 +1,21 @@
-# packet-sniffer
+# Packet Sniffer
 A Packet Sniffer app made using Python 
-## Todo
- - Get the python script imported into the GUIPython script
 
-## Other references
-[Sniffer by vjex](https://github.com/vjex/Sniffer)
+# Setup
+Change directory into the project after cloning and run,
+```
+sh setup.sh
+```
+It will ask for root access
+
+# Run the project
+Either do,
+```
+sudo python GUISniffer.py
+```
+or
+```
+sudo ./Packet\ Sniffer
+```
+# Screenshot
+![Screenshot of App](/GUI.png?raw=true "GUI")
