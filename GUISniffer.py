@@ -33,8 +33,7 @@ class SimpleTable(Frame):
 
     def showdetails(self, arg):
 		global detail
-		detail.set(arg['details'])
-		print arg['data']
+		detail.set(arg['details'] + '\nData: ' + arg['data'].decode('utf-8', 'ignore'))
 		for row in self._widgets:
 			if row[0] != self._widgets[0][0]:
 				for label in row:
@@ -138,8 +137,11 @@ def parse_packet(packet) :
              
             #get data from the packet
             data = packet[h_size:]
+            fmt='!'
+            for i in range(len(data)):
+                fmt = fmt + 'c'
             nrow.append(det) 
-            nrow.append('Data : ' + data)
+            nrow.append(''.join(unpack(fmt, data)))
              
         #ICMP Packets
         elif protocol == 1 :
@@ -160,8 +162,11 @@ def parse_packet(packet) :
              
             #get data from the packet
             data = packet[h_size:]
-            nrow.append(det)  
-            nrow.append('Data : ' + data)
+            fmt='!'
+            for i in range(len(data)):
+                fmt = fmt + 'c'
+            nrow.append(det) 
+            nrow.append(''.join(unpack(fmt, data)))
             
         #UDP packets
         elif protocol == 17 :
@@ -180,11 +185,12 @@ def parse_packet(packet) :
             det = 'Source Port : ' + str(source_port) + ' Dest Port : ' + str(dest_port) + ' Length : ' + str(length) + ' Checksum : ' + str(checksum)
             h_size = eth_length + iph_length + udph_length
             data_size = len(packet) - h_size
-             
-            #get data from the packet
             data = packet[h_size:]
+            fmt='!'
+            for i in range(len(data)):
+                fmt = fmt + 'c'
             nrow.append(det) 
-            nrow.append('Data : ' + data)
+            nrow.append(''.join(unpack(fmt, data)))
             
  
         #some other IP packet like IGMP
@@ -246,6 +252,7 @@ def main(argv):
 	detsf.pack(side=TOP,fill=BOTH, expand=YES)
 	detsf.component('clipper').configure(relief=FLAT, borderwidth=0, bg='white')
 	detsf.component('vertscrollbar').config(bg=accent, troughcolor='white', activebackground=accent, relief=FLAT, borderwidth=1)
+	detsf.component('horizscrollbar').config(bg=accent, troughcolor='white', activebackground=accent, relief=FLAT, borderwidth=1)
 	detf=detsf.interior()
 	detail=StringVar()
 	Label(detf, textvariable=detail, fg='black', bg='white',font=('Helvetica')).pack(side=BOTTOM, anchor=W, fill=X)
